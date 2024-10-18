@@ -1,3 +1,18 @@
+# Triple Pendulum in Python
+# Kyle Brown
+# NMSU — ENGR 401
+
+# Code logic based off of Ten-Minutes Physics Tutorial #06 for triple pendulum in HTML.
+# https://matthias-research.github.io/pages/tenMinutePhysics/index.html
+
+# To change pendulum starting conditions, alter `angles` variable. 
+#    angles = [0, 0, 0] will begin the simulation with a still pendulum
+
+# Added keyboard inputs to introduce impulses into each pendulum mass.
+#   - Press 1, 2, or 3 to introduce a clockwise torque on each respective pendulum mass.
+#   - Press Shift + 1, 2, or 3 to introduce a ccounter-clockwise torque on each respective pendulum mass.
+
+
 import pygame
 import math
 
@@ -5,9 +20,9 @@ import math
 pygame.init()
 
 # Define simulation parameters
-lengths = [0.2, 0.2, 0.2]
+lengths = [0.15, 0.15, 0.15]
 masses = [1.0, 1.0, 1.0]
-angles = [0, 0, 0]      # In radians
+angles = [1.5, -1.5, 1.5]          # In radians
 
 width, height = 1600, 600
 cScale = min(width, height) / 1.0
@@ -85,6 +100,11 @@ running = True
 clock = pygame.time.Clock()
 frame_times = []
 
+running = True
+clock = pygame.time.Clock()
+frame_times = []
+accumulator = 0.0  # Used to accumulate time for fixed-step physics simulation
+
 while running:
     screen.fill((0, 0, 0))
     
@@ -110,25 +130,22 @@ while running:
     if keys[pygame.K_3] and keys[pygame.K_LSHIFT]:  # Torque counterclockwise on the third pendulum
         pendulum.apply_torque(3, clockwise=False)
 
-    # Simulate the pendulum motion
-    sdt = dt / num_substeps
-    for _ in range(num_substeps):
-        pendulum.simulate(sdt, gravity)
+    # Time management for physics simulation
+    frame_time = clock.tick() / 1000.0  # Get the frame time in seconds
+    accumulator += frame_time
+
+    # Run physics simulation steps for each accumulated dt slice
+    while accumulator >= dt:
+        sdt = dt / num_substeps
+        for _ in range(num_substeps):
+            pendulum.simulate(sdt, gravity)
+        accumulator -= dt
 
     # Draw the pendulum
     pendulum.draw()
 
-    # Calculate FPS (effective based on simulation substeps)
-    frame_time = clock.tick(60)  # Control frame rate
-    frame_times.append(frame_time)
-    if len(frame_times) > 100:  # Only keep track of the last 100 frames
-        frame_times.pop(0)
-    
-    avg_frame_time = sum(frame_times) / len(frame_times)
-    effective_fps = 1000 / avg_frame_time  # Convert from milliseconds to FPS
-
-    # Display the FPS counter
-    fps_text = font.render(f"Effective FPS: {effective_fps:.2f}", True, (255, 255, 255))
+    # FPS display (optional)
+    fps_text = font.render(f"Effective FPS: {clock.get_fps():.2f}", True, (255, 255, 255))
     screen.blit(fps_text, (10, 10))
 
     # Update display
