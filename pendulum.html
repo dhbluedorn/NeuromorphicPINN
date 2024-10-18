@@ -1,21 +1,21 @@
 <!DOCTYPE html>
 <html>
 <head>
-	<title>Double Pendulum Simulation</title>
-	<style>
-		body {
-			font-family: verdana; 
-			font-size: 15px;
-		}			
-		.button {
-    		background-color: #606060;
-			border: none;
-			color: white;
-			padding: 10px 32px;
-			font-size: 16px;
-			margin: 4px 2px;
-			cursor: pointer;
-		}
+    <title>Double Pendulum Simulation</title>
+    <style>
+        body {
+            font-family: verdana; 
+            font-size: 15px;
+        }           
+        .button {
+            background-color: #606060;
+            border: none;
+            color: white;
+            padding: 10px 32px;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+        }
         .number-container {
             display: flex; 
             gap: 2px;
@@ -26,19 +26,22 @@
             text-align: right; 
             font-family: monospace;
         }
-	</style>
+    </style>
 </head>
 <body>
 <div class="number-container">
-        Real Time: <div class="number" id="realTime">0.00</div> ms
-        Simulated Time: <div class="number" id="simTime">0.00</div> ms
-        Computational Framerate: <div class="number" id="fps">0.00</div> fps
-        Simulation Speed: <div class="number" id="speed">0.00</div> x
-        <button class="button" onclick="run()">Run</button>
-        <button class="button" onclick="setupScene()">Restart</button>
-    </div>
+    Real Time: <div class="number" id="realTime">0.00</div> ms
+    Simulated Time: <div class="number" id="simTime">0.00</div> ms
+    Computational Framerate: <div class="number" id="fps">0.00</div> fps
+    Simulation Speed: <div class="number" id="speed">0.00</div> x
+    <button class="button" onclick="run()">Run</button>
+    <button class="button" onclick="pause()">Pause</button>
+    <button class="button" onclick="setupScene()">Restart</button>
+    <button class="button" onclick="exportCSV()">Export CSV</button>
+</div>
 <br>
 <canvas id="myCanvas"></canvas>
+
 <script>
     var lengths = [0.2, 0.2];
     var masses = [1.0, 1.0];
@@ -52,6 +55,10 @@
 
     function cX(pos) {return canvas.width / 2 + pos.x * cScale;}
     function cY(pos) { return 0.4 * canvas.height - pos.y * cScale;}
+
+    // CSV data storage
+    var csvData = [];
+    var simulationStartTime;
 
     class Pendulum {
         constructor(masses, length, angles) {
@@ -112,18 +119,27 @@
             c.fillStyle = "#FFFFFF";
             for (var i = 1; i < p.masses.length; i++) {
                 var r = 0.05 * Math.sqrt(p.masses[i]);
-                c.beginPath();			
+                c.beginPath();            
                 c.arc(
                     cX(p.pos[i]), cY(p.pos[i]), cScale * r, 0.0, 2.0 * Math.PI); 
                 c.closePath();
                 c.fill();
             }
         }
+
+        logData(time) {
+            // Log data for all bobs (x, y, angle)
+            var dataRow = [time];
+            for (var i = 1; i < this.pos.length; i++) {
+                dataRow.push(this.pos[i].x.toFixed(4), this.pos[i].y.toFixed(4));
+            }
+            csvData.push(dataRow);
+        }
     }
 
 var scene = {
     gravity : -9.81,
-    dt : 1/165,
+    dt : 1/153,
     programStartTime : new Date(),
     currentTime : new Date(),
     stepTime : 0,
@@ -133,8 +149,12 @@ var scene = {
 };
 
 function setupScene() {
+    csvData = []; // Reset CSV data
+    simulationStartTime = new Date(); // Start new simulation time
+    csvData.push(["Time (ms)", "Bob1 X", "Bob1 Y", "Bob2 X", "Bob2 Y"]);
+    
     var lengths = [0.2, 0.2];
-    var masses = [1.0, 1.0];
+    var masses = [1.0, 0.7];
     var angles = [0.1*Math.PI, 0.4*Math.PI];
     scene.pendulum = new Pendulum(masses, lengths, angles);
     scene.stepTime = 0;
@@ -151,33 +171,51 @@ function draw() {
 
 function simulate() { 
     if (scene.paused)
-            return;
+        return;
     scene.currentTime = new Date();
     scene.stepTime += 1;
     var sdt = scene.dt / scene.numSubSteps;
     for (var step = 0; step < scene.numSubSteps; step++) {
         scene.pendulum.simulate(sdt, scene.gravity);
     }
+    var simTime = Math.round(1000 * scene.stepTime * scene.dt);
+    document.getElementById("simTime").innerHTML = simTime;
+
+    scene.pendulum.logData(simTime);  // Log data after each step
+    draw();
 }
 
-document.addEventListener("keydown", event => {
-        if (event.isComposing || event.keyCode === 229) 
-            return;
-        if (event.key == 's')
-            step();
-        });    
+function run() {
+	scene.paused = false;
+    scene.currentTime = new Date();
+    scene.programStartTime = new Date();
+}
 
-	function run() {
-		scene.paused = false;
-        scene.currentTime = new Date();
-        scene.programStartTime = new Date();
-	}
+function exportCSV() {
+    // Convert csvData array into CSV formatted text
+    let csvContent = csvData.map(e => e.join(",")).join("\n");
 
-    function pause() {
-        scene.paused = true;
-    }
+    // Create a downloadable CSV file
+    var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    var link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    
+    // Use current time for filename
+    var currentDate = new Date();
+    var timestamp = currentDate.toLocaleString().replace(/\//g, "-").replace(/:/g, "-").replace(", ", "_");
+    link.download = `pendulum_data_${timestamp}.csv`;
 
-	function update() {
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function pause() {
+    scene.paused = true;
+}
+
+function update() {
     simulate();
     draw();
     var simTime = Math.round(scene.stepTime * scene.dt * 1000);
@@ -198,11 +236,9 @@ document.addEventListener("keydown", event => {
     document.getElementById("speed").innerHTML = speed.toString();
     requestAnimationFrame(update);
 }
-    setupScene();
-	update();	
 
-
-
+setupScene();
+update();
 </script>
 </body>
 </html>
