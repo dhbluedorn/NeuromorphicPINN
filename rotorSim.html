@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>Constrained Dynamics</title>
+	<style>
+		body {
+			font-family: verdana; 
+			font-size: 15px;
+		}			
+		.button {
+		background-color: #606060;
+		border: none;
+		color: white;
+		padding: 15px 32px;
+		font-size: 16px;
+		margin: 4px 2px;
+		cursor: pointer;
+        }
+        .number-container {
+            display: flex; 
+            gap: 20px;
+        }
+
+        .number {
+            width: 100px;
+            text-align: right; 
+            font-family: monospace;
+        }
+	</style>
+</head>
+
+<body>
+    <div class="number-container">
+        Real Time: <div class="number" id="realTime">0.00</div> ms
+        Simulated Time: <div class="number" id="simTime">0.00</div> ms
+        Computational Framerate: <div class="number" id="fps">0.00</div> fps
+        <button class="button" onclick="setupScene()">Restart</button>
+        <button class="button" onclick="run()">Run</button>
+        <button class="button" onclick="step()">Step</button>
+
+    </div>
+	<br>
+	<canvas id="myCanvas"></canvas>
+		
+
+<script>
+
+	// drawing -------------------------------------------------------
+	var canvas = document.getElementById("myCanvas");
+	var c = canvas.getContext("2d");
+
+	canvas.width = window.innerWidth - 20;
+	canvas.height = window.innerHeight - 100;
+
+	var simMinWidth = 2.0;
+	var cScale = Math.min(canvas.width, canvas.height) / simMinWidth;
+	var simWidth = canvas.width / cScale;
+	var simHeight = canvas.height / cScale;
+
+	function cX(pos) {
+		return pos.x * cScale;
+	}
+
+	function cY(pos) {
+		return canvas.height - pos.y * cScale;
+	}
+
+	// vector math -------------------------------------------------------
+
+	class Vector2 {
+		constructor(x = 0.0, y = 0.0) {
+			this.x = x; 
+			this.y = y;
+		}
+
+		set(v) {
+			this.x = v.x; this.y = v.y;
+		}
+
+		clone() {
+			return new Vector2(this.x, this.y);
+		}
+
+		add(v, s = 1.0) {
+			this.x += v.x * s;
+			this.y += v.y * s;
+			return this;
+		}
+
+		addVectors(a, b) {
+			this.x = a.x + b.x;
+			this.y = a.y + b.y;
+			return this;
+		}
+
+		subtract(v, s = 1.0) {
+			this.x -= v.x * s;
+			this.y -= v.y * s;
+			return this;
+		}
+
+		subtractVectors(a, b) {
+			this.x = a.x - b.x;
+			this.y = a.y - b.y;
+			return this;			
+		}
+
+		length() {
+			return Math.sqrt(this.x * this.x + this.y * this.y);
+		}
+
+		scale(s) {
+			this.x *= s;
+			this.y *= s;
+			return this;
+		}
+
+		dot(v) {
+			return this.x * v.x + this.y * v.y;
+		}
+
+		perp() {
+			return new Vector2(-this.y, this.x);
+		}
+	}
+
+	// scene -------------------------------------------------------
+
+    var physicsScene = 
+	{
+		gravity : new Vector2(0.0, 0.0),
+		dt : 1/130,
+		numSteps : 10000,
+		paused : false,
+        numBeads : 4,        
+		wireCenter : new Vector2(),
+        wireCenter2 : new Vector2(),
+        wireCenter3 : new Vector2(),
+        wireCenter4 : new Vector2(),
+		wireRadius : 0.0,
+		bead : null,
+        bead2 : null,
+        bead3 : null,
+        bead4 : null,
+		frequency : 100,
+        programStartTime : new Date(),
+        currentTime : new Date(),
+        stepTime : 0
+	};
+
+   // -------------------------------------------------------
+ 
+	class Bead {
+		constructor(radius, mass, pos, ivel) {
+			this.radius = radius;
+			this.mass = mass;
+			this.pos = pos.clone();
+			this.prevPos = pos.clone();
+			this.vel = new Vector2(0, ivel);
+		}
+		startStep(dt, gravity) {
+			this.vel.add(gravity, dt);
+			this.prevPos.set(this.pos);
+			this.pos.add(this.vel, dt);
+		}
+		keepOnWire(center, radius) {
+			var dir = new Vector2();
+			dir.subtractVectors(this.pos, center);
+			var len = dir.length();
+			if (len == 0.0)
+				return;
+			dir.scale(1.0 / len);
+			var lambda = physicsScene.wireRadius - len;
+			this.pos.add(dir, lambda);
+			return lambda;
+		}
+		endStep(dt) {
+			this.vel.subtractVectors(this.pos, this.prevPos);
+			this.vel.scale(1.0 / dt);
+		}
+	}
+
+
+	// -----------------------------------------------------
+
+	function setupScene() 
+	{
+
+        // Manage Timekeepers
+        physicsScene.programStartTime = new Date();
+        physicsScene.currentTime = new Date();
+        physicsScene.stepTime = 0;
+		physicsScene.paused = true;
+
+        var radius = simMinWidth * 0.2;
+        
+		physicsScene.wireCenter.x = simWidth / 4.0;
+		physicsScene.wireCenter.y = simHeight / 4.0;
+		physicsScene.wireRadius = simMinWidth * 0.2;
+
+        physicsScene.wireCenter2.x = simWidth * 0.25;
+		physicsScene.wireCenter2.y = simHeight * 0.75;
+		physicsScene.wireRadius = simMinWidth * 0.2;
+
+        physicsScene.wireCenter3.x = simWidth * 0.75;
+		physicsScene.wireCenter3.y = simHeight * 0.75;
+		physicsScene.wireRadius = simMinWidth * 0.2;
+
+        physicsScene.wireCenter4.x = simWidth * 0.75;
+		physicsScene.wireCenter4.y = simHeight * 0.25;
+		physicsScene.wireRadius = simMinWidth * 0.2;
+
+
+
+		var pos = new Vector2(
+			physicsScene.wireCenter.x + physicsScene.wireRadius, 
+			physicsScene.wireCenter.y);
+        var pos2 = new Vector2(
+            physicsScene.wireCenter2.x + physicsScene.wireRadius, 
+			physicsScene.wireCenter2.y
+        );
+        var pos3 = new Vector2(
+            physicsScene.wireCenter3.x + physicsScene.wireRadius, 
+			physicsScene.wireCenter3.y
+        );
+        var pos4 = new Vector2(
+            physicsScene.wireCenter4.x + physicsScene.wireRadius, 
+			physicsScene.wireCenter4.y
+        );
+        
+
+        physicsScene.bead = new Bead(0.1, 1.0, pos, 1*2*Math.PI*radius);	
+        physicsScene.bead2 = new Bead(0.1, 1.0, pos2, 1*2*Math.PI*radius);
+        physicsScene.bead3 = new Bead(0.1, 1.0, pos3, 1*2*Math.PI*radius);
+        physicsScene.bead4 = new Bead(0.1, 1.0, pos4, 1*2*Math.PI*radius);
+
+	}
+
+	// draw -------------------------------------------------------
+
+	function drawCircle(pos, radius, filled)
+	{
+		c.beginPath();			
+		c.arc(
+			cX(pos), cY(pos), cScale * radius, 0.0, 2.0 * Math.PI); 
+		c.closePath();
+		if (filled)
+			c.fill();
+		else 
+			c.stroke();
+	}
+
+	function draw() 
+	{
+		c.clearRect(0, 0, canvas.width, canvas.height);
+
+		c.fillStyle = "#FF0000";
+		c.lineWidth = 2.0;
+		drawCircle(physicsScene.wireCenter, physicsScene.wireRadius, false);
+        drawCircle(physicsScene.wireCenter2, physicsScene.wireRadius, false);
+        drawCircle(physicsScene.wireCenter3, physicsScene.wireRadius, false);
+        drawCircle(physicsScene.wireCenter4, physicsScene.wireRadius, false);
+
+		c.fillStyle = "#FF0000";
+
+		var bead = physicsScene.bead;
+		drawCircle(bead.pos, bead.radius, true);
+
+        var bead2 = physicsScene.bead2;
+		drawCircle(bead2.pos, bead2.radius, true);
+
+        var bead3 = physicsScene.bead3;
+		drawCircle(bead3.pos, bead3.radius, true);
+
+        var bead4 = physicsScene.bead4;
+		drawCircle(bead4.pos, bead4.radius, true);
+
+        c.fillStyle = "#00FF00";     
+	}
+
+	// ------------------------------------------------
+
+	function simulate() 
+	{
+		if (physicsScene.paused)
+
+			return;
+
+		var sdt = physicsScene.dt / physicsScene.numSteps;
+
+		for (var step = 0; step < physicsScene.numSteps; step++) {
+
+            physicsScene.bead.startStep(sdt, physicsScene.gravity);
+            physicsScene.bead2.startStep(sdt, physicsScene.gravity);
+            physicsScene.bead3.startStep(sdt, physicsScene.gravity);
+            physicsScene.bead4.startStep(sdt, physicsScene.gravity);
+
+			var lambda = physicsScene.bead.keepOnWire(
+					physicsScene.wireCenter, physicsScene.wireRadius);
+            
+            
+            lambda = physicsScene.bead2.keepOnWire(
+					physicsScene.wireCenter2, physicsScene.wireRadius);
+
+            lambda = physicsScene.bead3.keepOnWire(
+                    physicsScene.wireCenter3, physicsScene.wireRadius);
+
+            lambda = physicsScene.bead4.keepOnWire(
+                     physicsScene.wireCenter4, physicsScene.wireRadius);
+
+			physicsScene.bead.endStep(sdt);
+            physicsScene.bead2.endStep(sdt);
+            physicsScene.bead3.endStep(sdt);
+            physicsScene.bead4.endStep(sdt);
+		}
+
+        physicsScene.stepTime += 1;
+        physicsScene.currentTime = new Date();
+	}
+
+	// --------------------------------------------------------
+
+	function run() {
+		physicsScene.paused = false;
+	}
+
+	function step() {
+		physicsScene.paused = false;
+		simulate();
+		physicsScene.paused = true;
+	}
+
+	function update() {
+		simulate();
+		draw();
+        var simTime = Math.round(physicsScene.stepTime * physicsScene.dt * 1000);
+        var time = physicsScene.currentTime - physicsScene.programStartTime;
+        if (time == 0) {
+            var fps = 0;
+        }
+        else {
+            var f = (physicsScene.stepTime / time) * 1000
+            var fps = f.toFixed(2);
+        }
+        document.getElementById("realTime").innerHTML = time.toString();	
+        document.getElementById("simTime").innerHTML = simTime.toString();
+        document.getElementById("fps").innerHTML = fps.toString();
+        requestAnimationFrame(update);
+	}
+
+	
+	setupScene();
+	update();
+	
+</script> 
+</body>
+</html>
