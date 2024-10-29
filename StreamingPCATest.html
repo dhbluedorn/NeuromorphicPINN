@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Streaming PCA Test</title>
+	<style>
+		body {
+			font-family: verdana; 
+			font-size: 15px;
+		}			
+		.button {
+    		background-color: #606060;
+			border: none;
+			color: white;
+			padding: 10px 32px;
+			font-size: 16px;
+			margin: 4px 2px;
+			cursor: pointer;
+		}
+        .number-container {
+            display: flex; 
+            gap: 2px;
+        }
+
+        .number {
+            width: 60px;
+            text-align: right; 
+            font-family: monospace;
+        }
+	</style>
+</head>
+<body>
+<div class="number-container">
+        Real Time: <div class="number" id="realTime">0.00</div> ms
+        Simulated Time: <div class="number" id="simTime">0.00</div> ms
+        Computational Framerate: <div class="number" id="fps">0.00</div> fps
+        Simulation Speed: <div class="number" id="speed">0.00</div> x
+        <button class="button" onclick="run()">Run</button>
+        <button class="button" onclick="pause()">Pause</button>
+        <button class="button" onclick="setupScene(masses, lengths, angles)">Restart</button>
+        <button class="button" onclick="logEvent()">Log Event</button>
+        <button class="button" onclick="exportCSV()">Export CSV</button>
+    </div>
+<br>
+<div style="position: relative; width: 500px; height: 500px;">
+    <canvas id="PendulumViewer" width="500" height="500"></canvas>
+    <canvas id="eventCanvas" width="1920" height="1080" style="position: absolute; top: 0; left: 0; pointer-events: none;"></canvas>
+</div>
+<script>
+
+    // Initialize Physics Variables
+    var lengths = [0.2];
+    var masses = [1.0];
+    var angles = [0.3*Math.PI];
+    var canvas = document.getElementById("PendulumViewer");
+    var c = canvas.getContext("2d", { willReadFrequently : true });
+    canvas.width = window.innerWidth - 20;
+    canvas.height = window.innerHeight - 20;
+    var minSimWidth = 1.0;
+    var cScale = Math.min(canvas.width, canvas.height) / minSimWidth;
+
+    // Coordinate Mappers
+
+    function cX(pos) {return canvas.width / 2 + pos.x * cScale;}
+    function cY(pos) { return 0.4 * canvas.height - pos.y * cScale;}
+
+    // Event Tracking Canvas
+
+    const eventCanvas = document.getElementById('eventCanvas');
+    const eventCtx = eventCanvas.getContext('2d');
+
+    // Initialize Event Gathering
+    
+    ctx = canvas.getContext('2d');
+
+    let previousImageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+    var eventData = [];
+
+    // Function to extract events
+    var counter = 0;
+
+
+    function getEventData() {
+        const currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+        let events = [];
+
+        for (let i = 0; i < currentImageData.length; i += 46) {
+            const x = (i / 4) % canvas.width;
+            const y = Math.floor((i / 4) / canvas.width);
+
+            // Calculate the intensity as the average of RGB values
+            const currentIntensity = (currentImageData[i] + currentImageData[i + 1] + currentImageData[i + 2]) / 3;
+            const previousIntensity = (previousImageData[i] + previousImageData[i + 1] + previousImageData[i + 2]) / 3;
+
+            // Compare the intensities to generate an event
+            if (currentIntensity !== previousIntensity) {
+                const polarity = currentIntensity > previousIntensity;
+                events.push({ x, y, polarity });
+            }
+        }
+
+        // Update the previous image data
+        previousImageData = currentImageData;
+
+        return events;
+    }
+
+
+    // Create a function to draw event pixels on eventCanvas
+
+
+    function drawEvents(events) {
+        // Clear the event canvas before drawing new events
+        eventCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+        events.forEach(event => {
+            eventCtx.beginPath();
+            eventCtx.arc(event.x, event.y, 1, 0, 2 * Math.PI); // Draw a small circle at (x, y)
+
+            // Set color based on polarity: green for positive, red for negative
+            eventCtx.fillStyle = event.polarity ? 'green' : 'red';
+            eventCtx.fill();
+            eventCtx.closePath();
+        });
+    }
+
+    // Create a function to draw the Principal Components onscreen
+
+    // Function to draw a 2D vector on the canvas
+    function drawVector(vector, startX, startY, scale, color="#FF0000") {
+        const [vx, vy] = vector;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        
+        // Scale vector components
+        const endX = startX + vx * scale;
+        const endY = startY + vy * scale;
+
+        // Draw vector line
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+
+        // Calculate angle for the arrowhead based on vector components
+        const angle = Math.atan2(vy, vx);
+        drawArrowHead(endX, endY, angle, color);
+    }
+
+    function drawArrowHead(x, y, angle, color="#FF0000") {
+        const arrowLength = 10;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+
+        // Draw the two lines of the arrowhead
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - arrowLength * Math.cos(angle - Math.PI / 6), y - arrowLength * Math.sin(angle - Math.PI / 6));
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - arrowLength * Math.cos(angle + Math.PI / 6), y - arrowLength * Math.sin(angle + Math.PI / 6));
+        ctx.stroke();
+    }
+
+
+
+    function drawPCA(E) {
+        let E1 = E.e1;
+        let E2 = E.e2;
+        let mean = E.mean;
+
+        // Draw Eigen Vectors
+
+        drawVector(E1, mean[0], mean[1], 100);
+        drawVector(E2, mean[0], mean[1], 100);
+
+        // Optional: Draw Unit Direction Vector
+
+        //drawVector(E.uP, mean[0], mean[1], 100, "#0000FF");
+        
+    }   
+    
+    // Function to perform PCA on Event Data
+
+    function covariance(X, Y) {
+
+        const n = X.length;
+        const mean1 = X.reduce((sum, val) => sum + val, 0) / n;
+        const mean2 = Y.reduce((sum, val) => sum + val, 0) / n;
+
+        let cov = 0;
+        for (let i = 0; i < n; i++) {
+            cov += (X[i] - mean1) * (Y[i] - mean2);
+        }
+
+        return cov / (n - 1);
+    }
+
+    function matrixVectorMultiply(A, b) {
+        let result = Array(A.length).fill(0);
+        for (let i = 0; i < A.length; i++) {
+            for (let j = 0; j < b.length; j++) {
+                result[i] += A[i][j] * b[j];
+            }
+        }
+        return result;
+    }
+
+function dotProduct(vec1, vec2) {
+    return vec1.reduce((acc, v, i) => acc + v * vec2[i], 0);
+}
+
+    function normalize(vector) {
+        const norm = Math.sqrt(dotProduct(vector, vector));
+        return vector.map(v => v / norm);
+    }
+
+    function covariance(X, Y) {
+    const n = X.length;
+    const mean1 = X.reduce((sum, val) => sum + val, 0) / n;
+    const mean2 = Y.reduce((sum, val) => sum + val, 0) / n;
+
+    let cov = 0;
+    for (let i = 0; i < n; i++) {
+        cov += (X[i] - mean1) * (Y[i] - mean2);
+    }
+
+    return cov / (n - 1); // Unbiased estimator
+}
+
+function calculateMean(points) {
+    const n = points.length;
+    const sum = points.reduce((acc, point) => [acc[0] + point[0], acc[1] + point[1]], [0, 0]);
+    return sum.map(val => val / n);
+}
+
+function performPCA(eventData) {
+    // Extract X and Y coordinates
+    const X = eventData.map(event => event.x);  
+    const Y = eventData.map(event => event.y);  
+    const n = X.length;
+
+    // Means of X and Y
+    const mean1 = X.reduce((sum, val) => sum + val, 0) / n;
+    const mean2 = Y.reduce((sum, val) => sum + val, 0) / n;
+
+    // Covariances
+    const covXX = covariance(X, X);
+    const covYY = covariance(Y, Y);
+    const covXY = covariance(X, Y);
+
+    // Set up for the eigenvalue calculation using the characteristic polynomial
+    const a = 1;
+    const b = -(covXX + covYY);
+    const c = (covXX * covYY) - (covXY * covXY);
+    const discriminant = b * b - 4 * a * c;
+
+    // Check if the discriminant is negative
+    if (discriminant < 0) {
+        console.error("Negative discriminant, complex eigenvalues.");
+        return null;
+    }
+
+    // Calculate the eigenvalues
+    const l1 = (-b + Math.sqrt(discriminant)) / (2 * a);
+    const l2 = (-b - Math.sqrt(discriminant)) / (2 * a);
+
+    // Calculate the eigenvectors associated with l1 and l2
+    const e1 = normalize([l1 - covYY, covXY]);
+    const e2 = normalize([l2 - covYY, covXY]);
+
+    // Calculate System Direction
+    const plusEvents = eventData.filter(event => event.polarity).map(event => [event.x, event.y]);
+    const minusEvents = eventData.filter(event => !event.polarity).map(event => [event.x, event.y]);
+
+    // Calculate mean positions for positive and negative polarity events
+    let uP = [0, 0]; // Default direction if not enough data
+
+    if (plusEvents.length > 0 && minusEvents.length > 0) {
+        const plusMean = calculateMean(plusEvents);
+        const minusMean = calculateMean(minusEvents);
+
+        // Calculate polarity direction vector and normalize
+        const polarityVector = [-(minusMean[0] - plusMean[0]), -(minusMean[1] - plusMean[1])];
+        uP = normalize(polarityVector);
+    }
+
+    const eigenSign = Math.sign(dotProduct(uP, e1));
+
+
+    return {
+        e1: [eigenSign * e1[0], eigenSign * e1[1]],
+        e2: e2,
+        mean: [mean1, mean2],
+        uP: uP
+    };
+}
+
+    class Pendulum {
+        constructor(masses, length, angles) {
+            this.masses = [0.0];
+            this.lengths = [0.0];
+            this.pos = [{x:0.0, y:0.0}];
+            this.prevPos = [{x:0.0, y:0.0}];
+            this.vel = [{x:0.0, y:0.0}];
+            var x = 0.0, y = 0.0;
+            for (var i = 0; i < masses.length; i++) {
+                this.masses.push(masses[i]);
+                this.lengths.push(lengths[i]);
+                x += lengths[i] * Math.sin(angles[i]);
+                y += length[i] * Math.cos(angles[i]);
+                this.pos.push({x:x, y:y});
+                this.prevPos.push({x:x, y:y});
+                this.vel.push({x:0, y:0});
+            }
+        }
+
+        simulate(dt, gravity) 
+        {
+            var p = this;
+            for (var i = 1; i < p.masses.length; i++) {
+                p.vel[i].y += dt * scene.gravity;
+                p.prevPos[i].x = p.pos[i].x;
+                p.prevPos[i].y = p.pos[i].y;
+                p.pos[i].x += p.vel[i].x * dt;
+                p.pos[i].y += p.vel[i].y * dt;
+            }
+            for (var i = 1; i < p.masses.length; i++) {
+                var dx = p.pos[i].x - p.pos[i-1].x;
+                var dy = p.pos[i].y - p.pos[i-1].y;
+                var d = Math.sqrt(dx * dx + dy * dy);
+                var w0 = p.masses[i - 1] > 0.0 ? 1.0 / p.masses[i - 1] : 0.0;
+                var w1 = p.masses[i] > 0.0 ? 1.0 / p.masses[i] : 0.0;
+                var corr = (p.lengths[i] - d) / d / (w0 + w1);
+                p.pos[i - 1].x -= w0 * corr * dx; 
+                p.pos[i - 1].y -= w0 * corr * dy; 
+                p.pos[i].x += w1 * corr * dx; 
+                p.pos[i].y += w1 * corr * dy; 
+            }
+            for (var i = 1; i < p.masses.length; i++) {
+                p.vel[i].x = (p.pos[i].x - p.prevPos[i].x) / dt;
+                p.vel[i].y = (p.pos[i].y - p.prevPos[i].y) / dt;
+            }
+            scene.pendulum.logData(simTime);  // Log data after each step
+        }
+
+        draw() {
+            var p = this;
+            c.strokeStyle = "#303030";
+            c.lineWidth = 10;
+            c.beginPath();
+            c.moveTo(cX(p.pos[0]), cY(p.pos[0]));
+            
+            c.lineWidth = 0;            
+
+            c.fillStyle = "#FFFFFF";
+            for (var i = 1; i < p.masses.length; i++) {
+                var r = 0.05 * Math.sqrt(p.masses[i]);
+                c.beginPath();			
+                c.arc(
+                    cX(p.pos[i]), cY(p.pos[i]), cScale * r, 0.0, 2.0 * Math.PI); 
+                c.closePath();
+                c.fill();
+            }
+        }
+
+        logData(time) {
+            // Log data for all bobs (x, y, angle)
+            var dataRow = [time];
+            for (var i = 1; i < this.pos.length; i++) {
+                dataRow.push(this.pos[i].x.toFixed(4), this.pos[i].y.toFixed(4));
+            }
+            csvData.push(dataRow);
+        }
+    }
+
+var scene = {
+    gravity : -9.81,
+    dt : 1/400,
+    programStartTime : new Date(),
+    currentTime : new Date(),
+    stepTime : 0,
+    numSubSteps: 1000,
+    pendulum : new Pendulum(masses, lengths, angles),
+    paused : true
+};
+
+function setupScene(masses, lengths, angles) {
+    csvData = []; // Reset CSV data
+    simulationStartTime = new Date(); // Start new simulation time
+    csvData.push(["Time (ms)", "Bob1 X", "Bob1 Y", "Bob1 Angle", "Bob2 X", "Bob2 Y"]);
+    
+    //var lengths = [0.2, 0.2];
+    //var masses = [1.0, 0.9];
+    //var angles = [0.5*Math.PI, 0.6*Math.PI];
+    scene.pendulum = new Pendulum(masses, lengths, angles);
+    scene.stepTime = 0;
+    scene.paused = true;
+    scene.currentTime = new Date();
+    scene.programStartTime = new Date();
+}
+
+function draw() {
+    c.fillStyle = "#000000";
+    c.fillRect(0, 0, canvas.width, canvas.height);
+    scene.pendulum.draw();
+    eventData = getEventData();
+    if ((eventData.length > 2)) {
+        E = performPCA(eventData);
+    }
+    drawPCA(E);
+    drawEvents(eventData);
+}
+
+function simulate() { 
+    if (scene.paused)
+            return;
+    scene.currentTime = new Date();
+    scene.stepTime += 1;
+    var sdt = scene.dt / scene.numSubSteps;
+    for (var step = 0; step < scene.numSubSteps; step++) {
+        scene.pendulum.simulate(sdt, scene.gravity);
+    }
+}
+
+document.addEventListener("keydown", event => {
+        if (event.isComposing || event.keyCode === 229) 
+            return;
+        if (event.key == 's')
+            step();
+        });    
+
+	function run() {
+		scene.paused = false;
+        scene.currentTime = new Date();
+        scene.programStartTime = new Date();
+	}
+
+    function exportCSV() {
+        let csvContent = "data:text/csv;charset=utf-8," 
+            + csvData.map(e => e.join(",")).join("\n");
+
+        // Create a downloadable CSV file
+        var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        var link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        
+        // Use current time for filename
+        var currentDate = new Date();
+        var timestamp = currentDate.toLocaleString().replace(/\//g, "-").replace(/:/g, "-").replace(", ", "_");
+        link.download = `pendulum_data_${timestamp}.csv`;
+
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function logEvent() {
+        console.log(events);
+    }
+
+    function pause() {
+        scene.paused = true;
+    }
+
+	function update() {
+    simulate();
+    draw();
+    var simTime = Math.round(scene.stepTime * scene.dt * 1000);
+    var time = scene.currentTime - scene.programStartTime;
+    if (time == 0) {
+        var fps = 0;
+        var speed = 1.00;
+    }
+    else {
+        var f = (scene.stepTime / time) * 1000
+        var fps = f.toFixed(2);
+        var s = (simTime / time);
+        var speed = s.toFixed(2);
+    }
+    document.getElementById("realTime").innerHTML = time.toString();	
+    document.getElementById("simTime").innerHTML = simTime.toString();
+    document.getElementById("fps").innerHTML = fps.toString();
+    document.getElementById("speed").innerHTML = speed.toString();
+    requestAnimationFrame(update);
+}
+    setupScene(masses, lengths, angles);
+	update();	
+
+
+
+</script>
+</body>
+</html>
