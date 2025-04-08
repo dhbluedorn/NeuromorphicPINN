@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2 DOF Linear Oscillator with Walls</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #000;
+      color: #ffffff;
+      font-family: Arial, sans-serif;
+    }
+    canvas {
+      border: 1px solid #ffffff;
+      background-color: #000;
+      width: 1200px;
+      height: 400px;
+    }
+    .controls {
+      margin-top: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      justify-content: center;
+      align-items: center;
+      max-width: 1200px;
+    }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    label {
+      white-space: nowrap;
+    }
+    button {
+      background-color: #333;
+      color: #fff;
+      border: 1px solid #fff;
+      padding: 5px 15px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    button:hover {
+      background-color: #555;
+    }
+    button:disabled {
+      opacity: 0.5;
+    }
+    #values {
+      margin-top: 15px;
+      text-align: center;
+    }
+    input[type="range"] {
+      width: 150px;
+      accent-color: #fff;
+    }
+  </style>
+</head>
+<body>
+  
+  <canvas id="oscillatorCanvas" width="1200" height="400"></canvas>
+  
+  <div class="controls">
+    <div class="control-group">
+      <button id="startButton">Run</button>
+      <button id="stopButton" disabled>Stop</button>
+      <button id="resetButton">Reset</button>
+      <button id="pulseButton">Pulse M1</button>
+    </div>
+    
+    <div class="control-group">
+      <label for="mass1Slider">M1:</label>
+      <input type="range" id="mass1Slider" min="0.5" max="3" step="0.1" value="1.0">
+      <span id="mass1Value">1.0</span>
+    </div>
+    
+    <div class="control-group">
+      <label for="mass2Slider">M2:</label>
+      <input type="range" id="mass2Slider" min="0.5" max="3" step="0.1" value="1.0">
+      <span id="mass2Value">1.0</span>
+    </div>
+    
+    <div class="control-group">
+      <label for="spring1Slider">k₁:</label>
+      <input type="range" id="spring1Slider" min="5" max="50" step="1" value="10">
+      <span id="spring1Value">10</span>
+    </div>
+    
+    <div class="control-group">
+      <label for="spring2Slider">k₂:</label>
+      <input type="range" id="spring2Slider" min="5" max="50" step="1" value="10">
+      <span id="spring2Value">10</span>
+    </div>
+    
+    <div class="control-group">
+      <label for="spring3Slider">k₃:</label>
+      <input type="range" id="spring3Slider" min="5" max="50" step="1" value="10">
+      <span id="spring3Value">10</span>
+    </div>
+    
+    <div class="control-group">
+      <label for="dampingSlider">Damping:</label>
+      <input type="range" id="dampingSlider" min="0" max="2" step="0.1" value="0.1">
+      <span id="dampingValue">0.1</span>
+    </div>
+  </div>
+  
+  <div id="values">
+    <p>Elapsed Time: <span id="timeValue">0.00</span>s | FPS: <span id="fpsValue">0</span></p>
+  </div>
+
+  <script>
+    // Canvas setup
+    const canvas = document.getElementById('oscillatorCanvas');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    // System parameters
+    let params = {
+      m1: 1.0,
+      m2: 1.0,
+      k1: 30,
+      k2: 10,
+      k3: 30,
+      c: 0.1,
+      wallDistance: 350,
+      equilibriumDistance: 300
+    };
+    
+    // State variables
+    let state = {
+      x1: 0,
+      x2: 0,
+      v1: 0,
+      v2: 0,
+      time: 0,
+      running: false,
+      draggedMass: null,
+      lastTime: performance.now(),
+      fps: 0
+    };
+    
+    // DOM elements
+    const mass1Slider = document.getElementById('mass1Slider');
+    const mass2Slider = document.getElementById('mass2Slider');
+    const spring1Slider = document.getElementById('spring1Slider');
+    const spring2Slider = document.getElementById('spring2Slider');
+    const spring3Slider = document.getElementById('spring3Slider');
+    const dampingSlider = document.getElementById('dampingSlider');
+    const mass1Value = document.getElementById('mass1Value');
+    const mass2Value = document.getElementById('mass2Value');
+    const spring1Value = document.getElementById('spring1Value');
+    const spring2Value = document.getElementById('spring2Value');
+    const spring3Value = document.getElementById('spring3Value');
+    const dampingValue = document.getElementById('dampingValue');
+    const timeValue = document.getElementById('timeValue');
+    const fpsValue = document.getElementById('fpsValue');
+    const startButton = document.getElementById('startButton');
+    const stopButton = document.getElementById('stopButton');
+    const resetButton = document.getElementById('resetButton');
+    const pulseButton = document.getElementById('pulseButton');
+    
+    // Event listeners
+    mass1Slider.addEventListener('input', () => {
+      params.m1 = parseFloat(mass1Slider.value);
+      mass1Value.textContent = params.m1.toFixed(1);
+    });
+    
+    mass2Slider.addEventListener('input', () => {
+      params.m2 = parseFloat(mass2Slider.value);
+      mass2Value.textContent = params.m2.toFixed(1);
+    });
+    
+    spring1Slider.addEventListener('input', () => {
+      params.k1 = parseFloat(spring1Slider.value);
+      spring1Value.textContent = params.k1;
+    });
+    
+    spring2Slider.addEventListener('input', () => {
+      params.k2 = parseFloat(spring2Slider.value);
+      spring2Value.textContent = params.k2;
+    });
+    
+    spring3Slider.addEventListener('input', () => {
+      params.k3 = parseFloat(spring3Slider.value);
+      spring3Value.textContent = params.k3;
+    });
+    
+    dampingSlider.addEventListener('input', () => {
+      params.c = parseFloat(dampingSlider.value);
+      dampingValue.textContent = params.c.toFixed(1);
+    });
+    
+    startButton.addEventListener('click', startSimulation);
+    stopButton.addEventListener('click', stopSimulation);
+    resetButton.addEventListener('click', resetSimulation);
+    pulseButton.addEventListener('click', () => {
+      state.v1 = 5;
+      if (!state.running) startSimulation();
+    });
+    
+    // Mouse interaction
+    canvas.addEventListener('mousedown', handleMouseDown);
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('mouseleave', handleMouseUp);
+    
+    // Initialize simulation
+    resetSimulation();
+    
+    // Main functions
+    function startSimulation() {
+      if (!state.running) {
+        state.running = true;
+        startButton.disabled = true;
+        stopButton.disabled = false;
+        state.lastTime = performance.now();
+        animate();
+      }
+    }
+    
+    function stopSimulation() {
+      if (state.running) {
+        state.running = false;
+        startButton.disabled = false;
+        stopButton.disabled = true;
+      }
+    }
+    
+    function resetSimulation() {
+      stopSimulation();
+      state.x1 = 0;
+      state.x2 = 0;
+      state.v1 = 0;
+      state.v2 = 0;
+      state.time = 0;
+      drawSystem();
+      updateDisplay();
+    }
+    
+    function animate() {
+      if (!state.running) return;
+      
+      // Calculate FPS
+      const now = performance.now();
+      const deltaTime = (now - state.lastTime) / 1000;
+      state.fps = 1 / deltaTime;
+      state.lastTime = now;
+      
+      // Fixed time step physics
+      const steps = Math.min(Math.floor(deltaTime / 0.016) + 1, 10);
+      for (let i = 0; i < steps; i++) {
+        updatePhysics(0.016);
+      }
+      
+      drawSystem();
+      updateDisplay();
+      requestAnimationFrame(animate);
+    }
+    
+    function updatePhysics(dt) {
+      // Calculate forces
+      const F1 = -params.k1 * state.x1 - params.k3 * (state.x1 - state.x2) - params.c * state.v1;
+      const F2 = -params.k2 * state.x2 - params.k3 * (state.x2 - state.x1) - params.c * state.v2;
+      
+      // Update velocities and positions
+      state.v1 += F1 / params.m1 * dt;
+      state.v2 += F2 / params.m2 * dt;
+      state.x1 += state.v1 * dt;
+      state.x2 += state.v2 * dt;
+      state.time += dt;
+    }
+    
+    function drawSystem() {
+      ctx.clearRect(0, 0, width, height);
+      
+      // Draw walls
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(50, height/2 - 60, 20, 120);
+      ctx.fillRect(width - 70, height/2 - 60, 20, 120);
+      
+      // Calculate positions
+      const leftWallX = 70;
+      const rightWallX = width - 70;
+      const centerY = height / 2;
+      
+      const x1 = width/2 - params.equilibriumDistance + state.x1;
+      const x2 = width/2 + params.equilibriumDistance + state.x2;
+      
+    
+      
+      // Draw masses
+      const massRadius = 40;
+      ctx.fillStyle = '#ff0000';
+      ctx.beginPath();
+      ctx.arc(x1, centerY, massRadius, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = '#00aaff';
+      ctx.beginPath();
+      ctx.arc(x2, centerY, massRadius, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Draw labels
+      ctx.fillStyle = '#fff';
+      ctx.font = '16px Arial';
+      ctx.textAlign = 'center';
+    }
+    
+    function drawSpring(x1, y1, x2, y2, k, color) {
+      const length = Math.sqrt((x2 - x1)**2 + (y2 - y1)**2);
+      const segments = 10;
+      const segmentLength = length / segments;
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      const coilSize = 15 + k / 5;
+      
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      
+      for (let i = 1; i < segments; i++) {
+        const x = x1 + Math.cos(angle) * i * segmentLength;
+        const y = y1 + Math.sin(angle) * i * segmentLength;
+        const coilDir = (i % 2 === 0) ? 1 : -1;
+        const perpX = -Math.sin(angle) * coilSize * coilDir;
+        const perpY = Math.cos(angle) * coilSize * coilDir;
+        ctx.lineTo(x + perpX, y + perpY);
+      }
+      
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    
+    function updateDisplay() {
+      timeValue.textContent = state.time.toFixed(2);
+      fpsValue.textContent = Math.round(state.fps);
+    }
+    
+
+    function handleMouseDown(e) {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      
+      const centerY = height / 2;
+      const x1 = width/2 - params.equilibriumDistance + state.x1;
+      const x2 = width/2 + params.equilibriumDistance + state.x2;
+      
+      if (Math.sqrt((mouseX - x1)**2 + (mouseY - centerY)**2) <= 25) {
+        state.draggedMass = 1;
+        stopSimulation();
+      } else if (Math.sqrt((mouseX - x2)**2 + (mouseY - centerY)**2) <= 25) {
+        state.draggedMass = 2;
+        stopSimulation();
+      }
+    }
+    
+    function handleMouseMove(e) {
+      if (state.draggedMass) {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        
+        const equilibriumPos = width/2 + 
+          (state.draggedMass === 1 ? -params.equilibriumDistance : params.equilibriumDistance);
+        const newX = mouseX - equilibriumPos;
+        
+        if (state.draggedMass === 1) {
+          state.x1 = Math.max(-200, Math.min(200, newX));
+        } else {
+          state.x2 = Math.max(-200, Math.min(200, newX));
+        }
+        
+        state.v1 = 0;
+        state.v2 = 0;
+        drawSystem();
+      }
+    }
+    
+    function handleMouseUp() {
+      state.draggedMass = null;
+    }
+  </script>
+</body>
+</html>
