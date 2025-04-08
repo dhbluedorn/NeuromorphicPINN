@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Damped Harmonic Oscillator</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #000;
+    }
+    canvas {
+      border: 1px solid #fff;
+      background-color: #000;
+      width: 1200px;
+      height: 600px;
+    }
+    .controls {
+      margin-top: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .controls label {
+      font-family: Arial, sans-serif;
+      color: #fff;
+    }
+    #values {
+      font-family: Arial, sans-serif;
+      margin-top: 10px;
+      color: #fff;
+    }
+    button {
+      background-color: #333;
+      color: #fff;
+      border: 1px solid #fff;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #555;
+    }
+    input[type="range"] {
+      accent-color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="oscillatorCanvas" width="1200" height="600"></canvas>
+  <div class="controls">
+    <button id="startButton">Run</button>
+    <button id="stopButton">Stop</button>
+    <button id="restartButton">Restart</button>
+    <label for="dampingSlider">Damping Ratio:</label>
+    <input type="range" id="dampingSlider" min="0" max="1" step="0.01" value="0.1">
+    <span id="dampingValue">0.1</span>
+  </div>
+  <div id="values"></div>
+
+  <script>
+    const canvas = document.getElementById('oscillatorCanvas');
+    const ctx = canvas.getContext('2d');
+    const valuesDiv = document.getElementById('values');
+    const startButton = document.getElementById('startButton');
+    const stopButton = document.getElementById('stopButton');
+    const restartButton = document.getElementById('restartButton');
+    const dampingSlider = document.getElementById('dampingSlider');
+    const dampingValue = document.getElementById('dampingValue');
+
+    let mass = 1.0;
+    let springConstant = 10.0;
+    let dampingRatio = parseFloat(dampingSlider.value);
+    const equilibriumPosition = 0;
+
+    const initialDisplacement = 400;
+    const initialVelocity = 50;
+    const dt = 0.01;
+
+    let naturalFrequency, dampingCoefficient, dampedFrequency;
+    let position, velocity, elapsedTime, running;
+
+    let fps = 0;
+    let lastFrameTime = performance.now();
+
+    function initializeSimulation() {
+      dampingRatio = parseFloat(dampingSlider.value);
+      naturalFrequency = Math.sqrt(springConstant / mass);
+      dampingCoefficient = 2 * dampingRatio * Math.sqrt(mass * springConstant);
+      dampedFrequency = dampingRatio < 1 ? naturalFrequency * Math.sqrt(1 - dampingRatio ** 2) : 0;
+      position = equilibriumPosition + initialDisplacement;
+      velocity = initialVelocity;
+      elapsedTime = 0;
+      running = false;
+      updateValues();
+    }
+
+    function calculateAcceleration(position, velocity) {
+      const springForce = -springConstant * (position - equilibriumPosition);
+      const dampingForce = -dampingCoefficient * velocity;
+      return (springForce + dampingForce) / mass;
+    }
+
+    function mapX(x) {
+      return canvas.width / 2 + x;
+    }
+
+    function updateValues() {
+      valuesDiv.innerHTML = `
+        <p>Damping Ratio: ${dampingRatio.toFixed(2)}</p>
+        <p>Natural Frequency: ${naturalFrequency.toFixed(2)} rad/s</p>
+        <p>Damped Frequency: ${dampedFrequency.toFixed(2)} rad/s</p>
+        <p>Elapsed Time: ${elapsedTime.toFixed(2)} s</p>
+        <p>FPS: ${fps.toFixed(2)}</p>
+      `;
+    }
+
+    function simulate() {
+      if (!running) return;
+
+      const now = performance.now();
+      const deltaTime = now - lastFrameTime;
+      fps = 1000 / deltaTime;
+      lastFrameTime = now;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw floating mass only
+      ctx.beginPath();
+      ctx.arc(mapX(position), canvas.height / 2, 20, 0, 2 * Math.PI);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+
+      const acceleration = calculateAcceleration(position, velocity);
+      velocity += acceleration * dt;
+      position += velocity * dt;
+      elapsedTime += dt;
+
+      updateValues();
+
+      requestAnimationFrame(simulate);
+    }
+
+    startButton.addEventListener('click', () => {
+      if (!running) {
+        running = true;
+        lastFrameTime = performance.now();
+        simulate();
+      }
+    });
+
+    stopButton.addEventListener('click', () => {
+      running = false;
+    });
+
+    restartButton.addEventListener('click', () => {
+      initializeSimulation();
+      running = true;
+      lastFrameTime = performance.now();
+      simulate();
+    });
+
+    dampingSlider.addEventListener('input', () => {
+      dampingRatio = parseFloat(dampingSlider.value);
+      dampingValue.textContent = dampingRatio.toFixed(2);
+      dampingCoefficient = 2 * dampingRatio * Math.sqrt(mass * springConstant);
+      dampedFrequency = dampingRatio < 1 ? naturalFrequency * Math.sqrt(1 - dampingRatio ** 2) : 0;
+      updateValues();
+    });
+
+    initializeSimulation();
+  </script>
+</body>
+</html>
